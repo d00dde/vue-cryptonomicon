@@ -1,5 +1,12 @@
 <template>
 <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
+  <div v-if="!coinList" class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center">
+    <svg class="animate-spin -ml-1 mr-3 h-12 w-12 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+  </div>
+
   <div class="container">
     <div class="w-full my-4"></div>
     <section>
@@ -11,13 +18,28 @@
           <div class="mt-1 relative rounded-md shadow-md">
             <input
               v-model="ticker"
-              @keydown.enter="addTicker"
+              @keyup="setTooltips"
               type="text"
               name="wallet"
               id="wallet"
               class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
               placeholder="Например DOGE"
             />
+          </div>
+          <div class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap">
+            <span
+              v-for="tip in tooltips"
+              :key="tip"
+              @click="addTicker(tip)"
+              class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer">
+              {{ tip }}
+            </span>
+          </div>
+          <div
+            v-if="error"
+            class="text-sm text-red-600"
+          >
+            {{ error }}
           </div>
         </div>
       </div>
@@ -56,7 +78,9 @@
           >
             <div class="px-4 py-5 sm:p-6 text-center">
               <dt class="text-sm font-medium text-gray-500 truncate">
-                {{ t.name }} - USD
+                {{ t.symbol }} - USD
+                <br>
+                {{ t.fullName }}
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-gray-900">
                 {{ t.price }}
@@ -86,7 +110,7 @@
       </template>
     <section v-if="sel" class="relative">
       <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
-        {{ sel.name }} - USD
+        {{ sel.symbol }} - USD
       </h3>
       <div class="flex items-end border-gray-600 border-b border-l h-64">
         <div
@@ -137,44 +161,91 @@
         tickers: [],
         sel: null,
         intervalId: 0,
+        coinList: null,
+        tooltips: [],
+        error: '',
       };
     },
+    created: async function () {
+      const resp = await fetch('https://min-api.cryptocompare.com/data/all/coinlist?summary=true');
+      const data = await resp.json();
+      const fullNames = Object.keys(data.Data).map(coin => data.Data[coin].FullName.toUpperCase());
+      const symbols = Object.keys(data.Data).map(coin => data.Data[coin].Symbol);
+      this.coinList = { fullNames, symbols };
+    },
     methods: {
-      addTicker() {
+      addTicker(tip) {
+        this.error = '';
+        if(!tip.target){
+          this.ticker = tip;
+        }
+        if(this.tickers.find(t => t.symbol === this.ticker.toUpperCase())){
+          return this.error = 'Такой тикер уже добавлен';
+        }
+        const idx = this.coinList.symbols.indexOf(this.ticker.toUpperCase());
+        if(idx === -1) {
+          return this.error = 'Нет такой криптовалюты';
+        }
         this.tickers.push({
-          name: this.ticker,
+          symbol: this.ticker.toUpperCase(),
+          fullName: this.coinList.fullNames[idx],
           price: '-',
           currency: 'USD',
           graph: [],
         });
         this.ticker = '';
-        this.createRequest();
+        this.tooltips = [];
+        this.setRateRequest();
       },
       selectTicker(ticker) {
         this.sel = ticker;
       },
       deleteTicker(ticker) {
         this.tickers = this.tickers.filter( t => t !== ticker);
-        this.createRequest();
+        if(this.sel === ticker) {
+          this.sell = null;
+        }
+        this.setRateRequest();
       },
-      createRequest() {
+      setTooltips(e) {
+        if(e.key === "Enter") {
+          return this.addTicker(e);
+        }
+        this.error = '';
+        this.tooltips = [];
+        if(this.ticker) {
+          const { fullNames, symbols }= this.coinList;
+          for(let i = 0; i < fullNames.length; i++) {
+            if(fullNames[i].includes(this.ticker.toUpperCase())) {
+              this.tooltips.push(symbols[i]);
+              if (this.tooltips.length >= 4) {
+                break;
+              }
+            }
+          }
+        }
+      },
+      setRateRequest() {
         clearInterval(this.intervalId);
+        if(!this.tickers.length){
+          return;
+        }
         this.intervalId = setInterval(async () => {
           let resp;
           if(this.tickers.length === 1) {
             const ticker = this.tickers[0];
-            resp = await fetch(`https://min-api.cryptocompare.com/data/price?fsym=${ticker.name}&tsyms=${ticker.currency}`);
+            resp = await fetch(`https://min-api.cryptocompare.com/data/price?fsym=${ticker.symbol}&tsyms=${ticker.currency}`);
             const data = await resp.json();
             const normalizedPrice = this.normalizePrice(data, ticker.currency);
             ticker.price = normalizedPrice;
             ticker.graph.push(normalizedPrice);
           } else {
-            const tickersNames = this.tickers.map(t => t.name).join(',');
+            const tickersSymbols = this.tickers.map(t => t.symbol).join(',');
             const currencys = this.tickers.map(t => t.currency).join(',');
-            resp = await fetch(`https://min-api.cryptocompare.com/data/pricemulti?fsyms=${tickersNames}&tsyms=${currencys}`);
+            resp = await fetch(`https://min-api.cryptocompare.com/data/pricemulti?fsyms=${tickersSymbols}&tsyms=${currencys}`);
             const data = await resp.json();
             this.tickers.forEach(ticker => {
-              const normalizedPrice = this.normalizePrice(data[ticker.name], ticker.currency);
+              const normalizedPrice = this.normalizePrice(data[ticker.symbol], ticker.currency);
               ticker.price = normalizedPrice;
               ticker.graph.push(normalizedPrice);
             });
