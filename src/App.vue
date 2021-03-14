@@ -171,6 +171,8 @@
 </template>
 
 <script>
+  import { subscribeToTicker, unsubscribeFromTicker, getAllTokens } from "./api";
+
   export default {
     name: "App",
     data() {
@@ -187,15 +189,9 @@
       };
     },
     created: async function () {
-      let data = {};
-      try {
-        const resp = await fetch('https://min-api.cryptocompare.com/data/all/coinlist?summary=true');
-        data = await resp.json();
-      } catch (err) {
-        console.log(err);
-      }
-      const fullNames = Object.keys(data.Data).map(coin => data.Data[coin].FullName.toUpperCase());
-      const symbols = Object.keys(data.Data).map(coin => data.Data[coin].Symbol);
+      let { Data } = await getAllTokens();
+      const fullNames = Object.keys(Data).map(coin => Data[coin].FullName.toUpperCase());
+      const symbols = Object.keys(Data).map(coin => Data[coin].Symbol);
       this.coinList = { fullNames, symbols };
 
       const windowData = Object.fromEntries(
@@ -210,9 +206,17 @@
 
       const tickersData = localStorage.getItem("cryptonomicon-list");
       if (tickersData) {
-        this.tickers = JSON.parse(tickersData).map((symbol) => {
+        const parsedTikers = JSON.parse(tickersData);
+        this.tickers = parsedTikers.map((symbol) => {
           const idx = this.coinList.symbols.findIndex((s) => s === symbol);
           return this.createTicker(symbol, this.coinList.fullNames[idx]);
+        });
+        parsedTikers.forEach((symbol) => {
+          const tiker = this.tickers.find((t) => symbol === t.symbol);
+          subscribeToTicker(symbol, (newPrice) => {
+              tiker.price = this.normalizePrice(newPrice);
+              tiker.graph.push(newPrice);
+          });
         });
       }
     },
@@ -260,8 +264,13 @@
         if(idx === -1) {
           return this.error = 'Нет такой криптовалюты';
         }
-        const newTicker = this.createTicker(this.ticker.toUpperCase(), this.coinList.fullNames[idx])
+        const newTicker = this.createTicker(this.ticker.toUpperCase(), this.coinList.fullNames[idx]);
         this.tickers = [...this.tickers, newTicker];
+        const currentTiker = this.tickers.find((tiker) => newTicker.symbol === tiker.symbol);
+        subscribeToTicker(newTicker.symbol, (newPrice) => {
+          currentTiker.price = this.normalizePrice(newPrice);
+          currentTiker.graph.push(newPrice);
+        });
         this.ticker = '';
         this.tooltips = [];
       },
@@ -275,7 +284,7 @@
         if(this.selectedTicker === ticker) {
           this.selectedTicker = null;
         }
-        this.setRateRequest();
+        unsubscribeFromTicker(ticker.symbol);
       },
 
       setTooltips(e) {
@@ -297,34 +306,6 @@
         }
       },
 
-      setRateRequest() {
-        clearInterval(this.intervalId);
-        if(!this.tickers.length){
-          return;
-        }
-        this.intervalId = setInterval(async () => {
-          let resp;
-          if(this.tickers.length === 1) {
-            const ticker = this.tickers[0];
-            resp = await fetch(`https://min-api.cryptocompare.com/data/price?fsym=${ticker.symbol}&tsyms=${ticker.currency}`);
-            const data = await resp.json();
-            const normalizedPrice = this.normalizePrice(data, ticker.currency);
-            ticker.price = normalizedPrice;
-            ticker.graph.push(normalizedPrice);
-          } else {
-            const tickersSymbols = this.tickers.map(t => t.symbol).join(',');
-            const currencys = this.tickers.map(t => t.currency).join(',');
-            resp = await fetch(`https://min-api.cryptocompare.com/data/pricemulti?fsyms=${tickersSymbols}&tsyms=${currencys}`);
-            const data = await resp.json();
-            this.tickers.forEach(ticker => {
-              const normalizedPrice = this.normalizePrice(data[ticker.symbol], ticker.currency);
-              ticker.price = normalizedPrice;
-              ticker.graph.push(normalizedPrice);
-            });
-          }
-        }, 5000);
-      },
-
       normalizeGraph(ticker) {
         const maxVal = Math.max(...ticker.graph);
         const minVal = Math.min(...ticker.graph);
@@ -336,11 +317,8 @@
         });
       },
 
-      normalizePrice(tickerData, currency) {
-        if(!tickerData) {
-          return 0;
-        }
-        return tickerData[currency] > 1 ? tickerData[currency].toFixed(2) : tickerData[currency].toPrecision(2);
+      normalizePrice(price) {
+        return price > 1 ? price.toFixed(2) : price.toPrecision(2);
       },
 
       createTicker(symbol, fullName, currency = 'USD') {
@@ -358,7 +336,6 @@
       tickers() {
         const toSave = this.tickers.map((t) => t.symbol);
         localStorage.setItem("cryptonomicon-list", JSON.stringify(toSave));
-        this.setRateRequest();
       },
 
       paginatedTickers() {
