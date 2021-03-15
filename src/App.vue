@@ -30,7 +30,7 @@
             <span
               v-for="tip in tooltips"
               :key="tip"
-              @click="addTicker(tip)"
+              @click="ticker = tip, addTicker()"
               class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer">
               {{ tip }}
             </span>
@@ -243,11 +243,8 @@
 
     methods: {
 
-      addTicker(tip) {
+      addTicker() {
         this.error = '';
-        if(!tip.target){
-          this.ticker = tip;
-        }
         if(this.tickers.find(t => t.symbol === this.ticker.toUpperCase())){
           return this.error = 'Такой тикер уже добавлен';
         }
@@ -280,7 +277,8 @@
 
       setTooltips(e) {
         if(e.key === "Enter") {
-          return this.addTicker(e);
+          this.ticker = e.target.value;
+          return this.addTicker();
         }
         this.error = '';
         this.tooltips = [];
@@ -326,7 +324,6 @@
 
       tickers() {
         storage.setTickers(this.tickers.map((t) => t.symbol));
-        // localStorage.setItem("cryptonomicon-list", JSON.stringify(toSave));
       },
 
       paginatedTickers() {
