@@ -13,11 +13,11 @@ self.onconnect = ({ ports }) => {
   const port = ports[0];
   const id = maxId++;
   connects.set(id, []);
-  port.onmessage = ({ data: [type, ticker] }) => {
+  port.onmessage = ({ data: [type, ticker, currency] }) => {
     switch (type) {
       case "subscribe":
         connects.get(id).push(ticker);
-        subscribeToTickerOnWs(ticker);
+        subscribeToTickerOnWs(ticker, currency);
         break;
       case "unsubscribe":
         connects.set(
@@ -32,7 +32,7 @@ self.onconnect = ({ ports }) => {
           }
         });
         if (isLast) {
-          unsubscribeFromTickerOnWs(ticker);
+          unsubscribeFromTickerOnWs(ticker, currency);
         }
         break;
       // TODO: catch close tab and remove connection with this tab
@@ -67,16 +67,16 @@ function sendToWebSocket(message) {
   );
 }
 
-function subscribeToTickerOnWs(ticker) {
+function subscribeToTickerOnWs(ticker, currency) {
   sendToWebSocket({
     action: "SubAdd",
-    subs: [`5~CCCAGG~${ticker}~USD`],
+    subs: [`5~CCCAGG~${ticker}~${currency}`],
   });
 }
 
-function unsubscribeFromTickerOnWs(ticker) {
+function unsubscribeFromTickerOnWs(ticker, currency) {
   sendToWebSocket({
     action: "SubRemove",
-    subs: [`5~CCCAGG~${ticker}~USD`],
+    subs: [`5~CCCAGG~${ticker}~${currency}`],
   });
 }

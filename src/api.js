@@ -12,6 +12,17 @@ bc.onmessage = (msg) => {
     handlers.forEach((fn) => fn(newPrice));
   }
 };
+async function setPrimePrice(ticker, cb, currency) {
+  try {
+    const resp = await fetch(
+      `https://min-api.cryptocompare.com/data/price?fsym=${ticker}&tsyms=${currency}`,
+    );
+    const data = await resp.json();
+    cb(data[currency]);
+  } catch (err) {
+    console.log(err);
+  }
+}
 
 export const getAllTokens = async () => {
   try {
@@ -24,13 +35,14 @@ export const getAllTokens = async () => {
   }
 };
 
-export const subscribeToTicker = (ticker, cb) => {
+export const subscribeToTicker = (ticker, cb, currency = "USD") => {
+  setPrimePrice(ticker, cb, currency);
   const subscribers = tickersHandlers.get(ticker) || [];
   tickersHandlers.set(ticker, [...subscribers, cb]);
-  port.postMessage(["subscribe", ticker]);
+  port.postMessage(["subscribe", ticker, currency]);
 };
 
-export const unsubscribeFromTicker = (ticker) => {
+export const unsubscribeFromTicker = (ticker, currency = "USD") => {
   tickersHandlers.delete(ticker);
-  port.postMessage(["unsubscribe", ticker]);
+  port.postMessage(["unsubscribe", ticker, currency]);
 };

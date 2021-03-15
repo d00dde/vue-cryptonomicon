@@ -172,6 +172,7 @@
 
 <script>
   import { subscribeToTicker, unsubscribeFromTicker, getAllTokens } from "./api";
+  import * as storage from "./URLStorage";
 
   export default {
     name: "App",
@@ -180,7 +181,6 @@
         ticker: '',
         tickers: [],
         selectedTicker: null,
-        intervalId: 0,
         coinList: null,
         filter: '',
         page: 1,
@@ -190,35 +190,26 @@
     },
     created: async function () {
       let { Data } = await getAllTokens();
-      const fullNames = Object.keys(Data).map(coin => Data[coin].FullName.toUpperCase());
-      const symbols = Object.keys(Data).map(coin => Data[coin].Symbol);
-      this.coinList = { fullNames, symbols };
+      this.coinList = {
+        fullNames: Object.keys(Data).map(coin => Data[coin].FullName.toUpperCase()),
+        symbols: Object.keys(Data).map(coin => Data[coin].Symbol),
+      };
 
-      const windowData = Object.fromEntries(
-        new URL(window.location).searchParams.entries()
-      );
-      const VALID_KEYS = ["filter", "page"];
-      VALID_KEYS.forEach(key => {
-        if (windowData[key]) {
-          this[key] = windowData[key];
-        }
+      Object.entries(storage.getFilterOptions()).forEach(([key, value]) => {
+        this[key] = value;
       });
-
-      const tickersData = localStorage.getItem("cryptonomicon-list");
-      if (tickersData) {
-        const parsedTikers = JSON.parse(tickersData);
-        this.tickers = parsedTikers.map((symbol) => {
-          const idx = this.coinList.symbols.findIndex((s) => s === symbol);
-          return this.createTicker(symbol, this.coinList.fullNames[idx]);
+      const tickers = storage.getTickers();
+      this.tickers = tickers.map((symbol) => {
+        const idx = this.coinList.symbols.findIndex((s) => s === symbol);
+        return this.createTicker(symbol, this.coinList.fullNames[idx]);
+      });
+      tickers.forEach((symbol) => {
+        const tiker = this.tickers.find((t) => symbol === t.symbol);
+        subscribeToTicker(symbol, (newPrice) => {
+            tiker.price = this.normalizePrice(newPrice);
+            tiker.graph.push(newPrice);
         });
-        parsedTikers.forEach((symbol) => {
-          const tiker = this.tickers.find((t) => symbol === t.symbol);
-          subscribeToTicker(symbol, (newPrice) => {
-              tiker.price = this.normalizePrice(newPrice);
-              tiker.graph.push(newPrice);
-          });
-        });
-      }
+      });
     },
     computed: {
 
@@ -242,7 +233,7 @@
         return this.filteredTickers.length > this.endIndex;
       },
 
-      pageStateOptions() {
+      filterOptions() {
         return {
           filter: this.filter,
           page: this.page
@@ -334,8 +325,8 @@
     watch: {
 
       tickers() {
-        const toSave = this.tickers.map((t) => t.symbol);
-        localStorage.setItem("cryptonomicon-list", JSON.stringify(toSave));
+        storage.setTickers(this.tickers.map((t) => t.symbol));
+        // localStorage.setItem("cryptonomicon-list", JSON.stringify(toSave));
       },
 
       paginatedTickers() {
@@ -349,12 +340,8 @@
         this.selectedTicker = null;
       },
 
-      pageStateOptions(value) {
-        window.history.pushState(
-          null,
-          document.title,
-          `${window.location.pathname}?filter=${value.filter}&page=${value.page}`
-        );
+      filterOptions(options) {
+        storage.setFilterOptions(options);
       }
     },
   }
